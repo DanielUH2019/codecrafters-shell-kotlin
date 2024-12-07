@@ -1,4 +1,9 @@
 fun main() {
     print("$ ")
-    readln()
+    do {
+
+        val command = readln()
+        println("$command: command not found")
+    }while (true)
+
 }
