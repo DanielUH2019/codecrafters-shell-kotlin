@@ -13,6 +13,7 @@ fun main() {
                 val exitCode = args?.getOrNull(0)?.toIntOrNull() ?: 0 // Parse exit code or default to 0
                 exitProcess(exitCode)
             }
+            "echo" -> println(args?.joinToString(" ") ?: "")
             else -> println("$command: command not found")
         }
 
