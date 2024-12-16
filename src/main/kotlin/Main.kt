@@ -20,15 +20,10 @@ fun main() {
             }
             "echo" -> println(args?.joinToString(" ") ?: "")
             "type" -> runTypeBuiltin(args?.getOrNull(0) ?: "", pathDirectories)
-            "pwd" -> runPwdBuiltin()
+            "pwd" -> println(Path.of("").toAbsolutePath().toString())
             else -> runCommandIfIsInPath(command, args ?: listOf<String>(), pathDirectories)
         }
     } while (true)
-}
-
-
-fun runPwdBuiltin(): String {
-    return Path.of("").toAbsolutePath().toString()
 }
 
 fun runTypeBuiltin(command: String, pathDirectories: List<String>) {
@@ -40,7 +35,8 @@ fun runTypeBuiltin(command: String, pathDirectories: List<String>) {
     val isBuiltin = when (command) {
         "exit" -> true
         "echo" -> true
-        "type" -> true 
+        "type" -> true
+        "pwd" -> true
         else -> false
     }
     if (isBuiltin) {
