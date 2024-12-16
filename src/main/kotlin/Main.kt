@@ -20,12 +20,16 @@ fun main() {
             }
             "echo" -> println(args?.joinToString(" ") ?: "")
             "type" -> runTypeBuiltin(args?.getOrNull(0) ?: "", pathDirectories)
+            "pwd" -> runPwdBuiltin()
             else -> runCommandIfIsInPath(command, args ?: listOf<String>(), pathDirectories)
         }
     } while (true)
 }
 
 
+fun runPwdBuiltin(): String {
+    return Path.of("").toAbsolutePath().toString()
+}
 
 fun runTypeBuiltin(command: String, pathDirectories: List<String>) {
     if (command.isEmpty()) {
