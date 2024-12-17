@@ -1,49 +1,87 @@
+import java.io.File
 import java.io.IOException
 import kotlin.io.path.*
 import kotlin.system.exitProcess
 import java.nio.file.Path
 
+enum class EnvVar(val key: String) {
+    PATH("PATH"),
+    HOME("HOME");
+
+    companion object {
+        fun fromKey(key: String): EnvVar? = EnvVar.entries.find { it.key == key }
+    }
+}
+
+enum class BuiltinCommand(val command: String) {
+    EXIT("exit"),
+    ECHO("echo"),
+    PWD("pwd"),
+    CD("cd"),
+    TYPE("type");
+
+    companion object {
+        fun fromCommand(command: String): BuiltinCommand? = BuiltinCommand.entries.find { it.command == command }
+    }
+}
+
+data class ShellState(
+    var currentDirectory: File,
+    val environmentVariables: MutableMap<EnvVar, String> = mutableMapOf()
+)
 
 fun main() {
-    var pathDirectories = System.getenv("PATH")?.split(":") ?: emptyList()
+    val shellState = ShellState(
+        currentDirectory = File(System.getProperty("user.dir")).canonicalFile,
+        environmentVariables = mutableMapOf(
+            EnvVar.PATH to (System.getenv("PATH") ?: ""),
+            EnvVar.HOME to (System.getProperty("user.home") ?: "/")
+        )
+    )
+
     do {
         print("$ ")
         val userInput = readln()
         val splitUserInput = userInput.split(" ")
         val command = splitUserInput[0]
-        val args = if (splitUserInput.size > 1) splitUserInput.subList(1, splitUserInput.size) else null
+        val args = if (splitUserInput.size > 1) splitUserInput.subList(1, splitUserInput.size) else emptyList()
 
-        when (command) {
-            "exit" -> {
-                val exitCode = args?.getOrNull(0)?.toIntOrNull() ?: 0 // Parse exit code or default to 0
-                exitProcess(exitCode)
-            }
-            "echo" -> println(args?.joinToString(" ") ?: "")
-            "type" -> runTypeBuiltin(args?.getOrNull(0) ?: "", pathDirectories)
-            "pwd" -> println(Path.of("").toAbsolutePath().toString())
-            else -> runCommandIfIsInPath(command, args ?: listOf<String>(), pathDirectories)
+        val builtin = BuiltinCommand.fromCommand(command)
+        if (builtin != null) {
+            handleBuiltinCommand(builtin, args, shellState)
+        } else {
+            executeExternalCommand(command, args, shellState)
         }
     } while (true)
 }
 
-fun runTypeBuiltin(command: String, pathDirectories: List<String>) {
+fun handleBuiltinCommand(builtin: BuiltinCommand, args: List<String>, shellState: ShellState) {
+    when (builtin) {
+        BuiltinCommand.EXIT -> {
+            val exitCode = args.getOrNull(0)?.toIntOrNull() ?: 0 // Parse exit code or default to 0
+            exitProcess(exitCode)
+        }
+        BuiltinCommand.ECHO -> println(args.joinToString(" "))
+        BuiltinCommand.PWD -> println(shellState.currentDirectory.absolutePath)
+        BuiltinCommand.CD -> changeDirectory(shellState, args.firstOrNull() ?: shellState.environmentVariables[EnvVar.HOME]!!)
+        BuiltinCommand.TYPE -> runTypeBuiltin(args, shellState)
+    }
+}
+
+fun runTypeBuiltin(args: List<String>, shellState: ShellState) {
+    val command = args.firstOrNull() ?: ""
     if (command.isEmpty()) {
         println()
         return
     }
 
-    val isBuiltin = when (command) {
-        "exit" -> true
-        "echo" -> true
-        "type" -> true
-        "pwd" -> true
-        else -> false
-    }
+    val isBuiltin = BuiltinCommand.fromCommand(command) != null
     if (isBuiltin) {
         println("$command is a shell builtin")
         return
     }
 
+    val pathDirectories = shellState.environmentVariables[EnvVar.PATH]?.split(":") ?: emptyList()
     pathDirectories.forEach{ path ->
         val commandFile = Path.of(path, command)
         if (commandFile.isExecutable()) {
@@ -54,7 +92,22 @@ fun runTypeBuiltin(command: String, pathDirectories: List<String>) {
     println("$command: not found")
 }
 
-fun runCommandIfIsInPath(command: String, args: List<String>, pathDirectories: List<String>) {
+fun changeDirectory(shellState: ShellState, newPath: String) {
+    val targetDirectory = if (newPath.startsWith("/")) {
+        File(newPath)
+    } else {
+        File(shellState.currentDirectory, newPath)
+    }
+
+    if (targetDirectory.exists() && targetDirectory.isDirectory) {
+        shellState.currentDirectory = targetDirectory.canonicalFile
+    } else {
+        println("cd: $newPath: No such file or directory: $newPath")
+    }
+}
+
+fun executeExternalCommand(command: String, args: List<String>, shellState: ShellState) {
+    val pathDirectories = shellState.environmentVariables[EnvVar.PATH]?.split(":") ?: emptyList()
     pathDirectories.forEach { path ->
         val commandFile = Path.of(path, command)
         if (commandFile.exists() && commandFile.isExecutable()) {
