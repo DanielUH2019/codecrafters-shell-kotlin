@@ -42,7 +42,7 @@ fun main() {
     do {
         print("$ ")
         val userInput = readln()
-        val splitUserInput = userInput.split(" ")
+        val splitUserInput = tokenizeInput(userInput)
         val command = splitUserInput[0]
         val args = if (splitUserInput.size > 1) splitUserInput.subList(1, splitUserInput.size) else emptyList()
 
@@ -54,6 +54,66 @@ fun main() {
         }
     } while (true)
 }
+
+fun tokenizeInput(input: String): List<String> {
+    val tokens = mutableListOf<String>()
+    val token = StringBuilder()
+    var inSingleQuotes = false
+    var inDoubleQuotes = false
+    var escaping = false
+
+    input.forEach { char ->
+        when {
+            escaping -> {
+                token.append(char)
+                escaping = false
+            }
+            char == '\\' -> {
+                escaping = true
+            }
+            char == '\'' -> {
+                if (inDoubleQuotes) {
+                    token.append(char)
+                } else {
+                    inSingleQuotes = !inSingleQuotes
+                    if (!inSingleQuotes) {
+                        tokens.add(token.toString())
+                        token.clear()
+                    }
+                }
+            }
+            char == '"' -> {
+                if (inSingleQuotes) {
+                    token.append(char)
+                } else {
+                    inDoubleQuotes = !inDoubleQuotes
+                    if (!inDoubleQuotes) {
+                        tokens.add(token.toString())
+                        token.clear()
+                    }
+                }
+            }
+            char.isWhitespace() -> {
+                if (inSingleQuotes || inDoubleQuotes) {
+                    token.append(char)
+                } else if (token.isNotEmpty()) {
+                    tokens.add(token.toString())
+                    token.clear()
+                }
+            }
+            else -> {
+                token.append(char)
+            }
+        }
+    }
+
+    if (token.isNotEmpty()) {
+        tokens.add(token.toString())
+    }
+
+    return tokens
+}
+
 
 fun handleBuiltinCommand(builtin: BuiltinCommand, args: List<String>, shellState: ShellState) {
     when (builtin) {
