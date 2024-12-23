@@ -92,11 +92,27 @@ fun runTypeBuiltin(args: List<String>, shellState: ShellState) {
     println("$command: not found")
 }
 
+fun findSourceDirectoryFromRelativePath(currentDirectory: File, path: String): Pair<File, String> {
+    val currentDirectory = currentDirectory.parentFile
+    val newPath = path.drop(3)
+    if (currentDirectory.startsWith("../")){
+        return findSourceDirectoryFromRelativePath(currentDirectory, newPath)
+    }
+    return Pair(currentDirectory, newPath)
+
+}
+
 fun changeDirectory(shellState: ShellState, newPath: String) {
+    val (sourceDirectory, newPath) = if (newPath.startsWith("../")) {
+        findSourceDirectoryFromRelativePath(shellState.currentDirectory, newPath)
+    } else {
+        Pair(shellState.currentDirectory, newPath)
+    }
+
     val targetDirectory = if (newPath.startsWith("/")) {
         File(newPath)
     } else {
-        File(shellState.currentDirectory, newPath)
+        File(sourceDirectory, newPath)
     }
 
     if (targetDirectory.exists() && targetDirectory.isDirectory) {
