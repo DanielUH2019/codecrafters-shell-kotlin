@@ -101,9 +101,8 @@ fun changeDirectory(shellState: ShellState, newPath: String) {
 
     if (targetDirectory.exists() && targetDirectory.isDirectory) {
         shellState.currentDirectory = targetDirectory.canonicalFile
-        print("")
     } else {
-        println("cd: $newPath: No such file or directory: $newPath")
+        println("cd: $newPath: No such file or directory")
     }
 }
 
