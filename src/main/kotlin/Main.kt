@@ -35,7 +35,7 @@ fun main() {
         currentDirectory = File(System.getProperty("user.dir")).canonicalFile,
         environmentVariables = mutableMapOf(
             EnvVar.PATH to (System.getenv("PATH") ?: ""),
-            EnvVar.HOME to (System.getProperty("user.home") ?: "/")
+            EnvVar.HOME to (System.getenv("HOME") ?: "/")
         )
     )
 
@@ -102,11 +102,19 @@ fun findSourceDirectoryFromRelativePath(currentDirectory: File, path: String): P
 
 }
 
+
 fun changeDirectory(shellState: ShellState, newPath: String) {
-    val (sourceDirectory, newPath) = if (newPath.startsWith("../")) {
-        findSourceDirectoryFromRelativePath(shellState.currentDirectory, newPath)
+    val newPathWithHomeReplaced = if (newPath.startsWith("~/")) {
+        newPath.replace("~/", shellState.environmentVariables[EnvVar.HOME]!!)
+    } else if (newPath.startsWith("~")) {
+        newPath.replace("~", shellState.environmentVariables[EnvVar.HOME]!!)
     } else {
-        Pair(shellState.currentDirectory, newPath)
+        newPath
+    }
+    val (sourceDirectory, newPath) = if (newPathWithHomeReplaced.startsWith("../")) {
+        findSourceDirectoryFromRelativePath(shellState.currentDirectory, newPathWithHomeReplaced)
+    } else {
+        Pair(shellState.currentDirectory, newPathWithHomeReplaced)
     }
 
     val targetDirectory = if (newPath.startsWith("/")) {
