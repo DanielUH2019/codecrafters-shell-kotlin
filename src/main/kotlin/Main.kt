@@ -61,18 +61,21 @@ fun tokenizeInput(input: String): List<String> {
     var inSingleQuotes = false
     var inDoubleQuotes = false
     var escaping = false
-
-    input.forEach { char ->
+    val allowedCharsForEscaping = arrayOf('\\', '$', '"')
+    var i: Int = 0
+    while (i < input.length) {
+        val char = input[i]
+        val nextChar = if (i + 1 < input.length) input[i + 1] else null // Peek at the next character
         when {
             escaping -> {
                 token.append(char)
                 escaping = false
             }
             char == '\\' -> {
-                if (inDoubleQuotes) {
-                    token.append(char)
+                if (inDoubleQuotes && nextChar in allowedCharsForEscaping || (!inDoubleQuotes && !inSingleQuotes)) {
+                    escaping=true
                 } else {
-                    escaping = true
+                    token.append(char)
                 }
             }
             char == '\'' -> {
@@ -109,6 +112,7 @@ fun tokenizeInput(input: String): List<String> {
                 token.append(char)
             }
         }
+        i++
     }
 
     if (token.isNotEmpty()) {
