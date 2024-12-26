@@ -83,10 +83,6 @@ fun tokenizeInput(input: String): List<String> {
                     token.append(char)
                 } else {
                     inSingleQuotes = !inSingleQuotes
-                    if (!inSingleQuotes) {
-                        tokens.add(token.toString())
-                        token.clear()
-                    }
                 }
             }
             char == '"' -> {
@@ -94,10 +90,6 @@ fun tokenizeInput(input: String): List<String> {
                     token.append(char)
                 } else {
                     inDoubleQuotes = !inDoubleQuotes
-                    if (!inDoubleQuotes) {
-                        tokens.add(token.toString())
-                        token.clear()
-                    }
                 }
             }
             char.isWhitespace() -> {
