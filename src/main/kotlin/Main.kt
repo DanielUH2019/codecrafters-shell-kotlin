@@ -69,7 +69,11 @@ fun tokenizeInput(input: String): List<String> {
                 escaping = false
             }
             char == '\\' -> {
-                escaping = true
+                if (inDoubleQuotes) {
+                    token.append(char)
+                } else {
+                    escaping = true
+                }
             }
             char == '\'' -> {
                 if (inDoubleQuotes) {
