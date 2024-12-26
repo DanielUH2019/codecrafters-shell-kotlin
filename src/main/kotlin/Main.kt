@@ -206,9 +206,6 @@ fun executeExternalCommand(command: String, args: List<String>, shellState: Shel
                 return
             }
         }
-        else {
-            println("$command: command not found")
-            return
-        }
     }
+    println("$command: command not found")
 }
