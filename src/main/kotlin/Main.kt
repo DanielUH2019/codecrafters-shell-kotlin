@@ -30,6 +30,12 @@ data class ShellState(
     val environmentVariables: MutableMap<EnvVar, String> = mutableMapOf()
 )
 
+data class RedirectionResult(
+    val outputFile: File? = null, // File for output redirection (`>`, `>>`)
+    val appendOutput: Boolean = false, // Whether to append to output file (`>>`)
+    val redirectToStdeer: Boolean = false
+)
+
 fun main() {
     val shellState = ShellState(
         currentDirectory = File(System.getProperty("user.dir")).canonicalFile,
@@ -38,22 +44,66 @@ fun main() {
             EnvVar.HOME to (System.getenv("HOME") ?: "/")
         )
     )
-
     do {
         print("$ ")
         val userInput = readln()
         val splitUserInput = tokenizeInput(userInput)
         val command = splitUserInput[0]
-        val args = if (splitUserInput.size > 1) splitUserInput.subList(1, splitUserInput.size) else emptyList()
-
+        var args = if (splitUserInput.size > 1) splitUserInput.subList(1, splitUserInput.size) else emptyList()
+        val (argsWithoutRedirections, redirectionResult) = parseRedirectionOperators(args)
         val builtin = BuiltinCommand.fromCommand(command)
         if (builtin != null) {
-            handleBuiltinCommand(builtin, args, shellState)
+            handleBuiltinCommand(builtin, argsWithoutRedirections, redirectionResult, shellState)
         } else {
-            executeExternalCommand(command, args, shellState)
+            executeExternalCommand(command, argsWithoutRedirections, redirectionResult, shellState)
         }
     } while (true)
 }
+
+fun parseRedirectionOperators(args: List<String>): Pair<List<String>, RedirectionResult> {
+    var outputFile: File? = null
+    var appendOutput = false
+    val actualArgs = mutableListOf<String>()
+
+    if( args.isEmpty()) {
+        return Pair(args, RedirectionResult())
+    }
+
+    val redirectToStdeer = args[0].startsWith("2")
+    var i = 0
+    while (i < args.size) {
+        when {
+            args[i] == "1>" || args[i] == ">" || args[i] == "2>" -> {
+                if (i + 1 < args.size) {
+                    outputFile = File(args[++i])
+                } else {
+                    println("Syntax error: expected file after '>'")
+                    throw IllegalArgumentException()
+                }
+            }
+            args[i] == "1>>" || args[i] == "2>>" || args[i] == ">>" -> {
+                if (i + 1 < args.size) {
+                    outputFile = File(args[++i])
+                    appendOutput = true
+                } else {
+                    println("Syntax error: expected file after '>>'")
+                    throw IllegalArgumentException()
+                }
+            }
+            else -> {
+                actualArgs.add(args[i])
+            }
+        }
+        i+=1
+    }
+    val redirectionResult = RedirectionResult(
+        outputFile = outputFile,
+        appendOutput = appendOutput,
+        redirectToStdeer = redirectToStdeer
+    )
+    return Pair(actualArgs, redirectionResult)
+}
+
 
 fun tokenizeInput(input: String): List<String> {
     val tokens = mutableListOf<String>()
@@ -115,41 +165,66 @@ fun tokenizeInput(input: String): List<String> {
 }
 
 
-fun handleBuiltinCommand(builtin: BuiltinCommand, args: List<String>, shellState: ShellState) {
-    when (builtin) {
+fun handleBuiltinCommand(builtin: BuiltinCommand, args: List<String>, redirection: RedirectionResult, shellState: ShellState) {
+     val result = when (builtin) {
         BuiltinCommand.EXIT -> {
             val exitCode = args.getOrNull(0)?.toIntOrNull() ?: 0 // Parse exit code or default to 0
             exitProcess(exitCode)
         }
-        BuiltinCommand.ECHO -> println(args.joinToString(" "))
-        BuiltinCommand.PWD -> println(shellState.currentDirectory.absolutePath)
+        BuiltinCommand.ECHO -> args.joinToString(" ")
+        BuiltinCommand.PWD -> shellState.currentDirectory.absolutePath
         BuiltinCommand.CD -> changeDirectory(shellState, args.firstOrNull() ?: shellState.environmentVariables[EnvVar.HOME]!!)
         BuiltinCommand.TYPE -> runTypeBuiltin(args, shellState)
     }
+
+    if (result == null || result.isEmpty()) {
+        return
+    }
+
+    if (redirection.outputFile != null) {
+        try {
+            val outputMode = if (redirection.appendOutput) "APPEND" else "WRITE"
+            val outputFile = redirection.outputFile
+            val writer = if (redirection.appendOutput) {
+                outputFile.appendText(result + "\n")
+            } else {
+                outputFile.writeText(result + "\n")
+            }
+
+        } catch (e: IOException) {
+//            println("Error writing to file ${redirection.outputFile.absolutePath}: ${e.message}")
+        }
+    } else {
+        // Default behavior: Print to standard output
+        if (redirection.redirectToStdeer) {
+            System.err.println(result)
+        } else {
+            println(result)
+        }
+    }
+
+
 }
 
-fun runTypeBuiltin(args: List<String>, shellState: ShellState) {
+fun runTypeBuiltin(args: List<String>, shellState: ShellState) : String {
     val command = args.firstOrNull() ?: ""
     if (command.isEmpty()) {
-        println()
-        return
+        return ""
     }
 
     val isBuiltin = BuiltinCommand.fromCommand(command) != null
     if (isBuiltin) {
-        println("$command is a shell builtin")
-        return
+        return "$command is a shell builtin"
     }
 
     val pathDirectories = shellState.environmentVariables[EnvVar.PATH]?.split(":") ?: emptyList()
     pathDirectories.forEach{ path ->
         val commandFile = Path.of(path, command)
         if (commandFile.isExecutable()) {
-            println("$command is $path/$command")
-            return
+            return "$command is $path/$command"
         }
     }
-    println("$command: not found")
+    return "$command: not found"
 }
 
 fun findSourceDirectoryFromRelativePath(currentDirectory: File, path: String): Pair<File, String> {
@@ -159,11 +234,10 @@ fun findSourceDirectoryFromRelativePath(currentDirectory: File, path: String): P
         return findSourceDirectoryFromRelativePath(currentDirectory, newPath)
     }
     return Pair(currentDirectory, newPath)
-
 }
 
 
-fun changeDirectory(shellState: ShellState, newPath: String) {
+fun changeDirectory(shellState: ShellState, newPath: String) : String {
     val newPathWithHomeReplaced = if (newPath.startsWith("~/")) {
         newPath.replace("~/", shellState.environmentVariables[EnvVar.HOME]!!)
     } else if (newPath.startsWith("~")) {
@@ -186,20 +260,32 @@ fun changeDirectory(shellState: ShellState, newPath: String) {
     if (targetDirectory.exists() && targetDirectory.isDirectory) {
         shellState.currentDirectory = targetDirectory.canonicalFile
     } else {
-        println("cd: $newPath: No such file or directory")
+        return "cd: $newPath: No such file or directory"
     }
+    return ""
 }
 
-fun executeExternalCommand(command: String, args: List<String>, shellState: ShellState) {
+fun executeExternalCommand(command: String, args: List<String>, redirection: RedirectionResult, shellState: ShellState) {
     val pathDirectories = shellState.environmentVariables[EnvVar.PATH]?.split(":") ?: emptyList()
     pathDirectories.forEach { path ->
         val commandFile = Path.of(path, command)
         if (commandFile.exists() && commandFile.isExecutable()) {
             try {
-                val process = ProcessBuilder(listOf(commandFile.toString()) + args)
-                    .inheritIO() // Ensures the process uses the same I/O as the parent process
-                    .start()
-                process.waitFor() // Wait for the process to complete
+                val processBuilder = ProcessBuilder(listOf(commandFile.toString()) + args)
+
+                // Redirect I/O streams if necessary
+                if (redirection.outputFile != null) {
+                    if (redirection.appendOutput) {
+                        processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(redirection.outputFile))
+                    } else {
+                        processBuilder.redirectOutput(redirection.outputFile).redirectError(ProcessBuilder.Redirect.INHERIT)
+                    }
+                }  else {
+                    processBuilder.inheritIO() // Ensure normal I/O behavior if no redirection is set
+                }
+
+                val process = processBuilder.start()
+                process.waitFor()
                 return
             } catch (e: IOException) {
                 println("Error executing command: ${e.message}")
