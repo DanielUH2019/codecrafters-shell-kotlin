@@ -36,6 +36,11 @@ data class RedirectionResult(
     val redirectToStdeer: Boolean = false
 )
 
+data class BuiltinCommandResult(
+    val ok: Boolean,
+    val response: String
+)
+
 fun main() {
     val shellState = ShellState(
         currentDirectory = File(System.getProperty("user.dir")).canonicalFile,
@@ -65,17 +70,20 @@ fun parseRedirectionOperators(args: List<String>): Pair<List<String>, Redirectio
     var appendOutput = false
     val actualArgs = mutableListOf<String>()
 
-    if( args.isEmpty()) {
+    if(args.isEmpty()) {
         return Pair(args, RedirectionResult())
     }
-
-    val redirectToStdeer = args[0].startsWith("2")
+    var redirectToStdeer = false
     var i = 0
     while (i < args.size) {
         when {
             args[i] == "1>" || args[i] == ">" || args[i] == "2>" -> {
                 if (i + 1 < args.size) {
+                    if (args[i] == "2>") {
+                        redirectToStdeer = true
+                    }
                     outputFile = File(args[++i])
+                    outputFile.createNewFile()
                 } else {
                     println("Syntax error: expected file after '>'")
                     throw IllegalArgumentException()
@@ -83,6 +91,9 @@ fun parseRedirectionOperators(args: List<String>): Pair<List<String>, Redirectio
             }
             args[i] == "1>>" || args[i] == "2>>" || args[i] == ">>" -> {
                 if (i + 1 < args.size) {
+                    if (args[i] == "2>>") {
+                        redirectToStdeer = true
+                    }
                     outputFile = File(args[++i])
                     appendOutput = true
                 } else {
@@ -170,61 +181,56 @@ fun handleBuiltinCommand(builtin: BuiltinCommand, args: List<String>, redirectio
         BuiltinCommand.EXIT -> {
             val exitCode = args.getOrNull(0)?.toIntOrNull() ?: 0 // Parse exit code or default to 0
             exitProcess(exitCode)
+            BuiltinCommandResult(true, "")
         }
-        BuiltinCommand.ECHO -> args.joinToString(" ")
-        BuiltinCommand.PWD -> shellState.currentDirectory.absolutePath
+        BuiltinCommand.ECHO -> BuiltinCommandResult(true, args.joinToString(" "))
+        BuiltinCommand.PWD -> BuiltinCommandResult (true, shellState.currentDirectory.absolutePath)
         BuiltinCommand.CD -> changeDirectory(shellState, args.firstOrNull() ?: shellState.environmentVariables[EnvVar.HOME]!!)
         BuiltinCommand.TYPE -> runTypeBuiltin(args, shellState)
     }
 
-    if (result == null || result.isEmpty()) {
+    if (result.ok && result.response.isEmpty()) {
         return
     }
-
-    if (redirection.outputFile != null) {
-        try {
-            val outputMode = if (redirection.appendOutput) "APPEND" else "WRITE"
-            val outputFile = redirection.outputFile
-            val writer = if (redirection.appendOutput) {
-                outputFile.appendText(result + "\n")
-            } else {
-                outputFile.writeText(result + "\n")
+    val writeToFile = !(redirection.redirectToStdeer && result.ok)
+//    println("writeToFile $writeToFile, ok ${result.ok}, response ${result.response} ")
+    if (writeToFile) {
+        val outputFile = redirection.outputFile
+        if (redirection.outputFile != null && (result.ok || redirection.redirectToStdeer)) {
+            try {
+                val writer = if (redirection.appendOutput) {
+                    outputFile.appendText("${result.response}\n")
+                } else {
+                    outputFile.writeText("${result.response}\n")
+                }
+                return
+            } catch (e: IOException) {
+                println("Error writing to file ${redirection.outputFile.absolutePath}: ${e.message}")
             }
-
-        } catch (e: IOException) {
-//            println("Error writing to file ${redirection.outputFile.absolutePath}: ${e.message}")
-        }
-    } else {
-        // Default behavior: Print to standard output
-        if (redirection.redirectToStdeer) {
-            System.err.println(result)
-        } else {
-            println(result)
         }
     }
-
-
+    println(result.response)
 }
 
-fun runTypeBuiltin(args: List<String>, shellState: ShellState) : String {
+fun runTypeBuiltin(args: List<String>, shellState: ShellState) : BuiltinCommandResult {
     val command = args.firstOrNull() ?: ""
     if (command.isEmpty()) {
-        return ""
+        return BuiltinCommandResult(true, "")
     }
 
     val isBuiltin = BuiltinCommand.fromCommand(command) != null
     if (isBuiltin) {
-        return "$command is a shell builtin"
+        return BuiltinCommandResult(true, "$command is a shell builtin")
     }
 
     val pathDirectories = shellState.environmentVariables[EnvVar.PATH]?.split(":") ?: emptyList()
     pathDirectories.forEach{ path ->
         val commandFile = Path.of(path, command)
         if (commandFile.isExecutable()) {
-            return "$command is $path/$command"
+            return BuiltinCommandResult(true, "$command is $path/$command")
         }
     }
-    return "$command: not found"
+    return BuiltinCommandResult(false, "$command: not found")
 }
 
 fun findSourceDirectoryFromRelativePath(currentDirectory: File, path: String): Pair<File, String> {
@@ -237,7 +243,7 @@ fun findSourceDirectoryFromRelativePath(currentDirectory: File, path: String): P
 }
 
 
-fun changeDirectory(shellState: ShellState, newPath: String) : String {
+fun changeDirectory(shellState: ShellState, newPath: String) : BuiltinCommandResult {
     val newPathWithHomeReplaced = if (newPath.startsWith("~/")) {
         newPath.replace("~/", shellState.environmentVariables[EnvVar.HOME]!!)
     } else if (newPath.startsWith("~")) {
@@ -260,9 +266,9 @@ fun changeDirectory(shellState: ShellState, newPath: String) : String {
     if (targetDirectory.exists() && targetDirectory.isDirectory) {
         shellState.currentDirectory = targetDirectory.canonicalFile
     } else {
-        return "cd: $newPath: No such file or directory"
+         return BuiltinCommandResult(false, "cd: $newPath: No such file or directory")
     }
-    return ""
+    return BuiltinCommandResult(true , "")
 }
 
 fun executeExternalCommand(command: String, args: List<String>, redirection: RedirectionResult, shellState: ShellState) {
@@ -272,13 +278,16 @@ fun executeExternalCommand(command: String, args: List<String>, redirection: Red
         if (commandFile.exists() && commandFile.isExecutable()) {
             try {
                 val processBuilder = ProcessBuilder(listOf(commandFile.toString()) + args)
-
                 // Redirect I/O streams if necessary
                 if (redirection.outputFile != null) {
                     if (redirection.appendOutput) {
                         processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(redirection.outputFile))
+                    } else if (redirection.redirectToStdeer) {
+                        processBuilder.redirectError(redirection.outputFile)
+                        processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
                     } else {
-                        processBuilder.redirectOutput(redirection.outputFile).redirectError(ProcessBuilder.Redirect.INHERIT)
+                        processBuilder.redirectOutput(redirection.outputFile)
+                        processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
                     }
                 }  else {
                     processBuilder.inheritIO() // Ensure normal I/O behavior if no redirection is set
