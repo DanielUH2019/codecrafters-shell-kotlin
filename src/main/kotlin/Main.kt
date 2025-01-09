@@ -272,34 +272,40 @@ fun changeDirectory(shellState: ShellState, newPath: String) : BuiltinCommandRes
 
 fun executeExternalCommand(command: String, args: List<String>, redirection: RedirectionResult, shellState: ShellState) {
     val pathDirectories = shellState.environmentVariables[EnvVar.PATH]?.split(":") ?: emptyList()
-    pathDirectories.forEach { path ->
-        val commandFile = Path.of(path, command)
-        if (commandFile.exists() && commandFile.isExecutable()) {
-            try {
-                val processBuilder = ProcessBuilder(listOf(commandFile.name) + args)
-                // Redirect I/O streams if necessary
-                if (redirection.outputFile != null) {
-                    if (redirection.appendOutput) {
-                        processBuilder.redirectOutput(ProcessBuilder.Redirect.appendTo(redirection.outputFile))
-                    } else if (redirection.redirectToStdeer) {
-                        processBuilder.redirectError(redirection.outputFile)
-                        processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
-                    } else {
-                        processBuilder.redirectOutput(redirection.outputFile)
-                        processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
-                    }
-                }  else {
-                    processBuilder.inheritIO() // Ensure normal I/O behavior if no redirection is set
-                }
 
-                val process = processBuilder.start()
-                process.waitFor()
-                return
-            } catch (e: IOException) {
-                println("Error executing command: ${e.message}")
-                return
-            }
-        }
+    val commandFile = pathDirectories
+        .map { Path.of(it, command) }
+        .find { it.exists() && it.isExecutable() }
+
+    if (commandFile == null) {
+        println("$command: command not found")
+        return
     }
-    println("$command: command not found")
+
+    try {
+        val processBuilder = ProcessBuilder(listOf(commandFile.name) + args)
+
+        when {
+            redirection.outputFile != null -> {
+                val redirectOutput = if (redirection.appendOutput)
+                    ProcessBuilder.Redirect.appendTo(redirection.outputFile)
+                else
+                    ProcessBuilder.Redirect.to(redirection.outputFile)
+
+                if (redirection.redirectToStdeer) {
+                    processBuilder.redirectError(redirectOutput)
+                    processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+                } else {
+                    processBuilder.redirectOutput(redirectOutput)
+                    processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT)
+                }
+            }
+            else -> processBuilder.inheritIO() // Default behavior if no redirection
+        }
+
+        val process = processBuilder.start()
+        process.waitFor()
+    } catch (e: IOException) {
+        println("Error executing command: ${e.message}")
+    }
 }
