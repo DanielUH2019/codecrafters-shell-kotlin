@@ -193,7 +193,6 @@ fun handleBuiltinCommand(builtin: BuiltinCommand, args: List<String>, redirectio
         return
     }
     val writeToFile = !(redirection.redirectToStdeer && result.ok)
-//    println("writeToFile $writeToFile, ok ${result.ok}, response ${result.response} ")
     if (writeToFile) {
         val outputFile = redirection.outputFile
         if (redirection.outputFile != null && (result.ok || redirection.redirectToStdeer)) {
@@ -277,7 +276,7 @@ fun executeExternalCommand(command: String, args: List<String>, redirection: Red
         val commandFile = Path.of(path, command)
         if (commandFile.exists() && commandFile.isExecutable()) {
             try {
-                val processBuilder = ProcessBuilder(listOf(commandFile.toString()) + args)
+                val processBuilder = ProcessBuilder(listOf(commandFile.name) + args)
                 // Redirect I/O streams if necessary
                 if (redirection.outputFile != null) {
                     if (redirection.appendOutput) {
